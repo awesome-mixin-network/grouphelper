@@ -23,7 +23,8 @@ const CNBAssetID = "965e5c6e-434c-3fa9-b780-c50f43cd955c"
 
 const defaultResponse = `命令错误
 命令一：领糖果
-命令二：创建社群#社群名称#总量#份数
+命令二：创建社群#社群名称#总量#份数   （ 如：创建社群#吹牛逼社群#10000#100 ）
+命令三：公告#大家好
 ～～～～～～～～～～～～～～～～～～
 注：总量和份数为数字，暂时只支持CNB`
 
@@ -80,12 +81,14 @@ func (r Handler) OnMessage(ctx context.Context, msgView bot.MessageView, botID s
 
 		inst := string(data)
 		log.Printf("I got a message from %s, it said: `%s`\n", msgView.UserId, inst)
-		if "test" == inst {
-			Respond(ctx, msgView, "test")
+		if 0 < strings.Index(inst, "告#") {
+			msg := strings.Split(inst, "#")
+			println(msg[1])
+			sendMsg(msgView.UserId, msg[1], ctx,msgView)
 		} else if "领糖果" == inst {
 			// 转账给用户
 			Transfer(ctx, msgView)
-		} else if 0 < strings.Index(inst, "#") {
+		} else if 0 < strings.Index(inst, "群#") {
 			app := strings.Split(inst, "#")
 			amount := app[2]
 			println(app[0], app[1], app[2], app[3])
@@ -105,11 +108,11 @@ func (r Handler) OnMessage(ctx context.Context, msgView bot.MessageView, botID s
 
 // 根据用户抵押资产 发送糖果
 func Transfer(ctx context.Context, msgView bot.MessageView) {
- 	
+
 	candyNum := candyNum(msgView.UserId, ctx, msgView)
-	if candyNum==0 {
+	if candyNum == 0 {
 		Respond(ctx, msgView, fmt.Sprintf("暂无糖果"))
-	}else {
+	} else {
 		payload := bot.TransferInput{
 			AssetId:     CNBAssetID,
 			RecipientId: msgView.UserId,
@@ -124,7 +127,7 @@ func Transfer(ctx context.Context, msgView bot.MessageView) {
 			config.GetConfig().Pin,
 			config.GetConfig().PinToken,
 		)
-		fmt.Println("发糖果中",strconv.Itoa(candyNum))
+		fmt.Println("发糖果中", strconv.Itoa(candyNum))
 
 		if err != nil {
 			Respond(ctx, msgView, fmt.Sprintf("Oops, %s\n", err))
@@ -132,6 +135,28 @@ func Transfer(ctx context.Context, msgView bot.MessageView) {
 		changeCandy(msgView.UserId)
 	}
 
+}
+
+// 发送公告 user_id 管理员id，msg公告
+func sendMsg(user_id, msg string, ctx context.Context,msgView bot.MessageView) {
+	var app_id int
+	var app_user_id string
+	err:=Db.QueryRow("select id from  apps  where user_id = ? ", user_id).Scan(&app_id)
+	if err != nil {
+		log.Fatal(err)
+	}
+	rows, errs := Db.Query("select user_id from  candy where app_id=?",app_id)
+	if errs != nil {
+		log.Fatal(errs)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		rows.Scan(&app_user_id)
+		ConversationId := bot.UniqueConversationId(config.GetConfig().ClientID, app_user_id)
+		msgView.ConversationId = ConversationId
+		msgView.UserId = app_user_id
+		Respond(ctx, msgView, msg)
+	}
 }
 
 // 更新糖果状态
@@ -143,7 +168,7 @@ func changeCandy(user_id string) {
 //获取用户糖果数量
 func candyNum(user_id string, ctx context.Context, msgView bot.MessageView) int {
 	var num int
-	err:=Db.QueryRow("select SUM(num) from candy where user_id = ? ", user_id).Scan(&num)
+	err := Db.QueryRow("select SUM(num) from candy where user_id = ? ", user_id).Scan(&num)
 
 	//num = "1"
 	if err != nil {
@@ -178,7 +203,7 @@ func candyNum(user_id string, ctx context.Context, msgView bot.MessageView) int 
 		var nums int
 		Db.QueryRow("select SUM(num) from candy where status = 0 and user_id = ? ", user_id).Scan(&nums)
 		return nums
-	}else {
+	} else {
 		var numss int
 		Db.QueryRow("select SUM(num) from candy where status = 0 and user_id = ? ", user_id).Scan(&numss)
 		return numss
@@ -200,7 +225,7 @@ func changeAppStatus(ctx context.Context, msgView bot.MessageView, trace string)
 	stmt.Exec(trace)
 	var app_id int
 	Db.QueryRow("select id from apps where trace =?", trace).Scan(&app_id)
-	println("app_id",app_id)
+	println("app_id", app_id)
 	createGroup(ctx, msgView, app_id)
 }
 
