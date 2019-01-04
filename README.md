@@ -1,4 +1,9 @@
-命令错误
+
+填写config.yml
+
+修改 main.go mysql 数据库帐户密码
+
+设置数据库名称 group_helper
 
 命令一：领糖果
 
