@@ -63,7 +63,7 @@ func (r Handler) OnMessage(ctx context.Context, msgView bot.MessageView, botID s
 		}
 		json.Unmarshal(data, &resp)
 
-		println("正在更新昨天", resp.TraceId)
+		println("正在更新状态", resp.TraceId)
 		//change app status
 		changeAppStatus(ctx, msgView, resp.TraceId)
 		Respond(ctx, msgView, fmt.Sprintf("创建社群成功，用户加入社群回复'领糖果'即可领取糖果！"))
@@ -82,7 +82,7 @@ func (r Handler) OnMessage(ctx context.Context, msgView bot.MessageView, botID s
 		log.Printf("I got a message from %s, it said: `%s`\n", msgView.UserId, inst)
 		if "test" == inst {
 			Respond(ctx, msgView, "test")
-		} else if "糖果" == inst {
+		} else if "领糖果" == inst {
 			// 转账给用户
 			Transfer(ctx, msgView)
 		} else if 0 < strings.Index(inst, "#") {
@@ -105,36 +105,84 @@ func (r Handler) OnMessage(ctx context.Context, msgView bot.MessageView, botID s
 
 // 根据用户抵押资产 发送糖果
 func Transfer(ctx context.Context, msgView bot.MessageView) {
+ 	
+	candyNum := candyNum(msgView.UserId, ctx, msgView)
+	if candyNum==0 {
+		Respond(ctx, msgView, fmt.Sprintf("暂无糖果"))
+	}else {
+		payload := bot.TransferInput{
+			AssetId:     CNBAssetID,
+			RecipientId: msgView.UserId,
+			Amount:      number.FromString(strconv.Itoa(candyNum)),
+			TraceId:     uuid.Must(uuid.NewV4()).String(),
+			Memo:        "Enjoy!",
+		}
+		err := bot.CreateTransfer(ctx, &payload,
+			config.GetConfig().ClientID,
+			config.GetConfig().SessionID,
+			config.GetConfig().PrivateKey,
+			config.GetConfig().Pin,
+			config.GetConfig().PinToken,
+		)
+		fmt.Println("发糖果中",strconv.Itoa(candyNum))
 
-	candyNum := candyNum(msgView.UserId)
-	payload := bot.TransferInput{
-		AssetId:     CNBAssetID,
-		RecipientId: msgView.UserId,
-		Amount:      number.FromString(string(candyNum)),
-		TraceId:     uuid.Must(uuid.NewV4()).String(),
-		Memo:        "Enjoy!",
+		if err != nil {
+			Respond(ctx, msgView, fmt.Sprintf("Oops, %s\n", err))
+		}
+		changeCandy(msgView.UserId)
 	}
-	err := bot.CreateTransfer(ctx, &payload,
-		config.GetConfig().ClientID,
-		config.GetConfig().SessionID,
-		config.GetConfig().PrivateKey,
-		config.GetConfig().Pin,
-		config.GetConfig().PinToken,
-	)
-	if err != nil {
-		Respond(ctx, msgView, fmt.Sprintf("Oops, %s\n", err))
-	}
+
+}
+
+// 更新糖果状态
+func changeCandy(user_id string) {
+	stmt, _ := Db.Prepare("UPDATE  candy  set status=1 where user_id =?")
+	stmt.Exec(user_id)
 }
 
 //获取用户糖果数量
-func candyNum(user_id string) int {
+func candyNum(user_id string, ctx context.Context, msgView bot.MessageView) int {
 	var num int
-	Db.QueryRow("select SUN(num) from candy where user_id = ? ", user_id).Scan(&num)
-	//num = "1"
-	if num <= 0 {
+	err:=Db.QueryRow("select SUM(num) from candy where user_id = ? ", user_id).Scan(&num)
 
+	//num = "1"
+	if err != nil {
+		//log.Fatal(err)
 	}
-	return num
+	if num <= 0 {
+		var conversationId string
+		// 如果数据中不存在 则读取群组中的用户
+		rows, _ := Db.Query("select conversation_id from  groups")
+		defer rows.Close()
+
+		for rows.Next() {
+			rows.Scan(&conversationId)
+
+			uri := "/conversations/" + conversationId
+			accessToken, _ := bot.SignAuthenticationToken(config.GetConfig().ClientID, config.GetConfig().SessionID, config.GetConfig().PrivateKey, "GET", uri, "")
+			data, _ := bot.ConversationShow(ctx, conversationId, accessToken)
+			for i := 0; i < len(data.Participants); i++ {
+				// 用户id
+				if data.Participants[i].UserId == msgView.UserId {
+					var app_id string
+					var nums string
+					Db.QueryRow("select app_id from groups where conversation_id = ? ", conversationId).Scan(&app_id)
+					Db.QueryRow("select convert(num/lot,decimal(15,8)) as nums from apps where id = ? ", app_id).Scan(&nums)
+					tx, _ := Db.Begin()
+					stmt, _ := tx.Prepare("INSERT INTO candy (user_id,app_id, num,status) VALUES (?,?,?,?)")
+					stmt.Exec(data.Participants[i].UserId, app_id, nums, 0)
+					tx.Commit()
+				}
+			}
+		}
+		var nums int
+		Db.QueryRow("select SUM(num) from candy where status = 0 and user_id = ? ", user_id).Scan(&nums)
+		return nums
+	}else {
+		var numss int
+		Db.QueryRow("select SUM(num) from candy where status = 0 and user_id = ? ", user_id).Scan(&numss)
+		return numss
+	}
 }
 
 //创建app
@@ -149,12 +197,15 @@ func createApp(num, lot, user_id, name, asset_id, trace string) {
 func changeAppStatus(ctx context.Context, msgView bot.MessageView, trace string) {
 
 	stmt, _ := Db.Prepare("UPDATE  apps  set status=1 where trace =?")
-	rs, _ := stmt.Exec(trace)
-	app_id, _ := rs.LastInsertId()
+	stmt.Exec(trace)
+	var app_id int
+	Db.QueryRow("select id from apps where trace =?", trace).Scan(&app_id)
+	println("app_id",app_id)
 	createGroup(ctx, msgView, app_id)
 }
 
-func createGroup(ctx context.Context, msgView bot.MessageView, app_id int64) {
+// mysql 创建对应数据
+func createGroup(ctx context.Context, msgView bot.MessageView, app_id int) {
 	conversationId := CreateConversation(ctx, msgView)
 	tx, _ := Db.Begin()
 	stmt, _ := tx.Prepare("INSERT INTO groups (app_id,name,conversation_id) VALUES (?,?,?)")
