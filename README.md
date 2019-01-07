@@ -74,9 +74,8 @@
 管理员可以给自己的社群用户发送公告
 ![Image text](https://raw.githubusercontent.com/ewnk/grouphelper/master/img/5.jpg)
 
-
-
 九、更新计划
 
 	代码结构优化
 	采用分布式数据库
+	项目方定义任务
