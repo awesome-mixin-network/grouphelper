@@ -60,7 +60,23 @@
 
 项目方能给mixin messager带来更多的用户，促进mixin生态的发展
 
-八、更新计划
+八、使用实例
+
+创建社群
+![Image text](https://raw.githubusercontent.com/ewnk/grouphelper/master/img/2.jpg)
+
+创建后机器人会邀请你进群，并给予管理员权限
+![Image text](https://raw.githubusercontent.com/ewnk/grouphelper/master/img/3.jpg)
+
+邀请用户加入后用户可回复 “领糖果”
+![Image text](https://raw.githubusercontent.com/ewnk/grouphelper/master/img/4.jpg)
+
+管理员可以给自己的社群用户发送公告
+![Image text](https://raw.githubusercontent.com/ewnk/grouphelper/master/img/5.jpg)
+
+
+
+九、更新计划
 
 	代码结构优化
 	采用分布式数据库
